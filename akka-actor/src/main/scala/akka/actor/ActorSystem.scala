@@ -582,9 +582,13 @@ private[akka] class ActorSystemImpl(
 
   def systemActorOf(props: Props, name: String): ActorRef = systemGuardian.underlying.attachChild(props, name, systemService = true)
 
-  def actorOf(props: Props, name: String): ActorRef = guardian.underlying.attachChild(props, name, systemService = false)
+  def actorOf(props: Props, name: String): ActorRef =
+    if (guardianProps.isEmpty) guardian.underlying.attachChild(props, name, systemService = false)
+    else throw new UnsupportedOperationException("cannot create top-level actor from the outside on ActorSystem with custom user guardian")
 
-  def actorOf(props: Props): ActorRef = guardian.underlying.attachChild(props, systemService = false)
+  def actorOf(props: Props): ActorRef =
+    if (guardianProps.isEmpty) guardian.underlying.attachChild(props, systemService = false)
+    else throw new UnsupportedOperationException("cannot create top-level actor from the outside on ActorSystem with custom user guardian")
 
   def stop(actor: ActorRef): Unit = {
     val path = actor.path

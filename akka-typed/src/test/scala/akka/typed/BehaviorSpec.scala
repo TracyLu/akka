@@ -128,23 +128,23 @@ class BehaviorSpec extends TypedSpec with ConversionCheckedTripleEquals {
 
     def `must react to Failed`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx()
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should ===(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
     }
 
     def `must react to Failed after a message`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx().check(GetSelf)
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should ===(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
     }
 
     def `must react to a message after Failed`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx()
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should ===(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
       setup.check(GetSelf)
     }
 
@@ -242,23 +242,23 @@ class BehaviorSpec extends TypedSpec with ConversionCheckedTripleEquals {
 
     def `must react to Failed after swap`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx().check(Swap)
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should be(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
     }
 
     def `must react to Failed after a message after swap`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx().check(Swap).check(GetSelf)
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should be(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
     }
 
     def `must react to a message after Failed after swap`(): Unit = {
       val setup @ Setup(ctx, inbox) = mkCtx().check(Swap)
-      ctx.setFailureResponse(Failed.NoFailureResponse)
-      setup.check(Failed(ex, inbox.ref))
-      ctx.getFailureResponse should be(Failed.Restart)
+      val f = Failed(ex, inbox.ref)
+      setup.check(f)
+      f.getDecision should ===(Failed.Restart)
       setup.check(GetSelf)
     }
 
@@ -292,7 +292,10 @@ class BehaviorSpec extends TypedSpec with ConversionCheckedTripleEquals {
     Full {
       case Sig(ctx, signal) ⇒
         monitor ! GotSignal(signal)
-        if (signal.isInstanceOf[Failed]) ctx.setFailureResponse(Failed.Restart)
+        signal match {
+          case f: Failed ⇒ f.decide(Failed.Restart)
+          case _         ⇒
+        }
         Same
       case Msg(ctx, GetSelf) ⇒
         monitor ! Self(ctx.self)
@@ -327,7 +330,10 @@ class BehaviorSpec extends TypedSpec with ConversionCheckedTripleEquals {
       FullTotal {
         case Sig(ctx, signal) ⇒
           monitor ! GotSignal(signal)
-          if (signal.isInstanceOf[Failed]) ctx.setFailureResponse(Failed.Restart)
+          signal match {
+            case f: Failed ⇒ f.decide(Failed.Restart)
+            case _         ⇒
+          }
           Same
         case Msg(ctx, GetSelf) ⇒
           monitor ! Self(ctx.self)
@@ -351,6 +357,11 @@ class BehaviorSpec extends TypedSpec with ConversionCheckedTripleEquals {
         case Msg(_, _: AuxPing) ⇒ Unhandled
       }
     }
+  }
+
+  object `A Widened Behavior` extends Messages with BecomeWithLifecycle with Stoppable {
+    override def behavior(monitor: ActorRef[Event]): Behavior[Command] =
+      ScalaDSL.Widened(mkFull(monitor), { case x ⇒ x })
   }
 
   object `A ContextAware Behavior` extends Messages with BecomeWithLifecycle with Stoppable {

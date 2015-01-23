@@ -49,8 +49,7 @@ trait GracefulStopSupport {
     if (target.isTerminated) Future successful true
     else {
       val internalTarget = target.asInstanceOf[InternalActorRef]
-      val ref = PromiseActorRef(internalTarget.provider, Timeout(timeout), targetName = target)
-      ref.messageName = stopMessage.getClass.getName
+      val ref = PromiseActorRef(internalTarget.provider, Timeout(timeout), target, stopMessage.getClass.getName)
       internalTarget.sendSystemMessage(Watch(internalTarget, ref))
       target.tell(stopMessage, Actor.noSender)
       ref.result.future.transform(

@@ -105,10 +105,10 @@ class ReceptionistSpec extends TypedSpec {
     def `must work with ask`(): Unit = sync(runTest("Receptionist") {
       StepWise[Registered[ServiceA]] { (ctx, startWith) ⇒
         val self = ctx.self
-        import system.untyped.dispatcher
+        import system.executionContext
         startWith.withKeepTraces(true) {
-          val r = ctx.spawn(Props(behavior))
-          val s = ctx.spawn(propsA)
+          val r = ctx.spawnAnonymous(Props(behavior))
+          val s = ctx.spawnAnonymous(propsA)
           val f = r ? Register(ServiceKeyA, s)
           r ! Register(ServiceKeyA, s)(self)
           (f, s)

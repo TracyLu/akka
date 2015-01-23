@@ -48,7 +48,7 @@ object AskPattern {
           (ActorRef[U](ref.provider.deadLetters),
             Future.failed[U](new IllegalArgumentException(s"Timeout length must not be negative, question not sent to [$actorRef]")))
         else {
-          val a = PromiseActorRef(ref.provider, timeout, actorRef.toString)
+          val a = PromiseActorRef(ref.provider, timeout, actorRef, "unknown")
           val b = ActorRef[U](a)
           (b, a.result.future.asInstanceOf[Future[U]], a)
         }
@@ -63,7 +63,7 @@ object AskPattern {
   private[typed] def ask[T, U](actorRef: ActorRef[T], timeout: Timeout, f: ActorRef[U] ⇒ T): Future[U] = {
     val p = PromiseRef[U](actorRef)(timeout)
     val m = f(p.ref)
-    p.promiseRef.messageName = m.getClass.getName
+    p.promiseRef.messageClassName = m.getClass.getName
     actorRef ! m
     p.future
   }

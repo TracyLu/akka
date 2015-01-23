@@ -16,38 +16,38 @@ import scala.collection.immutable
 abstract class Effect
 
 object Effect {
-  case class Spawned(childName: String) extends Effect
-  case class Stopped(childName: String) extends Effect
-  case class Watched[T](other: ActorRef[T]) extends Effect
-  case class Unwatched[T](other: ActorRef[T]) extends Effect
-  case class ReceiveTimeoutSet(d: Duration) extends Effect
-  case class Messaged[U](other: ActorRef[U], msg: U) extends Effect
-  case class Scheduled[U](delay: FiniteDuration, target: ActorRef[U], msg: U) extends Effect
-  case object EmptyEffect extends Effect
+  @SerialVersionUID(1L) final case class Spawned(childName: String) extends Effect
+  @SerialVersionUID(1L) final case class Stopped(childName: String) extends Effect
+  @SerialVersionUID(1L) final case class Watched[T](other: ActorRef[T]) extends Effect
+  @SerialVersionUID(1L) final case class Unwatched[T](other: ActorRef[T]) extends Effect
+  @SerialVersionUID(1L) final case class ReceiveTimeoutSet(d: Duration) extends Effect
+  @SerialVersionUID(1L) final case class Messaged[U](other: ActorRef[U], msg: U) extends Effect
+  @SerialVersionUID(1L) final case class Scheduled[U](delay: FiniteDuration, target: ActorRef[U], msg: U) extends Effect
+  @SerialVersionUID(1L) case object EmptyEffect extends Effect
 }
 
 /**
  * An [[ActorContext]] for testing purposes that records the effects performed
- * on it and otherwise stubs them out like a [[DummyActorContext]].
+ * on it and otherwise stubs them out like a [[StubbedActorContext]].
  */
 class EffectfulActorContext[T](_name: String, _props: Props[T], _system: ActorSystem[Nothing])
-  extends DummyActorContext[T](_name, _props)(_system) {
+  extends StubbedActorContext[T](_name, _props)(_system) {
   import akka.{ actor ⇒ a }
   import Effect._
 
-  private val eq = new ConcurrentLinkedQueue[Effect]
-  def getEffect(): Effect = eq.poll() match {
+  private val effectQueue = new ConcurrentLinkedQueue[Effect]
+  def getEffect(): Effect = effectQueue.poll() match {
     case null ⇒ throw new NoSuchElementException(s"polling on an empty effect queue: $name")
     case x    ⇒ x
   }
   def getAllEffects(): immutable.Seq[Effect] = {
-    @tailrec def rec(acc: List[Effect]): List[Effect] = eq.poll() match {
+    @tailrec def rec(acc: List[Effect]): List[Effect] = effectQueue.poll() match {
       case null ⇒ acc.reverse
       case x    ⇒ rec(x :: acc)
     }
     rec(Nil)
   }
-  def hasEffects: Boolean = eq.peek() != null
+  def hasEffects: Boolean = effectQueue.peek() != null
 
   private var current = props.creator()
   signal(PreStart)
@@ -57,50 +57,50 @@ class EffectfulActorContext[T](_name: String, _props: Props[T], _system: ActorSy
   def run(msg: T): Unit = current = Behavior.canonicalize(this, current.message(this, msg), current)
   def signal(signal: Signal): Unit = current = Behavior.canonicalize(this, current.management(this, signal), current)
 
-  override def spawn[U](props: Props[U]): ActorRef[U] = {
-    val ref = super.spawn(props)
-    eq.offer(Spawned(ref.ref.path.name))
+  override def spawnAnonymous[U](props: Props[U]): ActorRef[U] = {
+    val ref = super.spawnAnonymous(props)
+    effectQueue.offer(Spawned(ref.ref.path.name))
     ref
   }
   override def spawn[U](props: Props[U], name: String): ActorRef[U] = {
-    eq.offer(Spawned(name))
+    effectQueue.offer(Spawned(name))
     super.spawn(props, name)
   }
   override def actorOf(props: a.Props): a.ActorRef = {
     val ref = super.actorOf(props)
-    eq.offer(Spawned(ref.path.name))
+    effectQueue.offer(Spawned(ref.path.name))
     ref
   }
   override def actorOf(props: a.Props, name: String): a.ActorRef = {
-    eq.offer(Spawned(name))
+    effectQueue.offer(Spawned(name))
     super.actorOf(props, name)
   }
   override def stop(childName: String): Unit = {
-    eq.offer(Stopped(childName))
+    effectQueue.offer(Stopped(childName))
     super.stop(childName)
   }
   override def watch[U](other: ActorRef[U]): ActorRef[U] = {
-    eq.offer(Watched(other))
+    effectQueue.offer(Watched(other))
     super.watch(other)
   }
   override def unwatch[U](other: ActorRef[U]): ActorRef[U] = {
-    eq.offer(Unwatched(other))
+    effectQueue.offer(Unwatched(other))
     super.unwatch(other)
   }
   override def watch(other: akka.actor.ActorRef): other.type = {
-    eq.offer(Watched(ActorRef[Any](other)))
+    effectQueue.offer(Watched(ActorRef[Any](other)))
     super.watch(other)
   }
   override def unwatch(other: akka.actor.ActorRef): other.type = {
-    eq.offer(Unwatched(ActorRef[Any](other)))
+    effectQueue.offer(Unwatched(ActorRef[Any](other)))
     super.unwatch(other)
   }
   override def setReceiveTimeout(d: Duration): Unit = {
-    eq.offer(ReceiveTimeoutSet(d))
+    effectQueue.offer(ReceiveTimeoutSet(d))
     super.setReceiveTimeout(d)
   }
   override def schedule[U](delay: FiniteDuration, target: ActorRef[U], msg: U): a.Cancellable = {
-    eq.offer(Scheduled(delay, target, msg))
+    effectQueue.offer(Scheduled(delay, target, msg))
     super.schedule(delay, target, msg)
   }
 }

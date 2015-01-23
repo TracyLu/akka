@@ -8,7 +8,7 @@ import scala.collection.immutable
 import scala.collection.immutable.TreeSet
 import scala.collection.immutable.TreeMap
 import akka.util.Helpers
-import akka.{ actor ⇒ a }
+import akka.{ actor ⇒ untyped }
 import scala.reflect.ClassTag
 import scala.reflect.classTag
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -27,7 +27,7 @@ import akka.typed.Behavior.stoppedBehavior
  *  - designate the behavior for the next message
  *
  * In Akka the first capability is accessed by using the `!` or `tell` method
- * on an [[ActorRef]], the second is provided by [[#spawn[U](akka\.typed\.Props,* spawn]]
+ * on an [[ActorRef]], the second is provided by [[ActorContext#spawn]]
  * and the third is implicit in the signature of [[Behavior]] in that the next
  * behavior is always returned from the message processing logic.
  *
@@ -69,7 +69,7 @@ trait ActorContext[T] {
    * Create a child Actor from the given [[Props]] under a randomly chosen name.
    * It is good practice to name Actors wherever practical.
    */
-  def spawn[U](props: Props[U]): ActorRef[U]
+  def spawnAnonymous[U](props: Props[U]): ActorRef[U]
 
   /**
    * Create a child Actor from the given [[Props]] and with the given name.
@@ -80,12 +80,12 @@ trait ActorContext[T] {
    * Create an untyped child Actor from the given [[akka.actor.Props]] under a randomly chosen name.
    * It is good practice to name Actors wherever practical.
    */
-  def actorOf(props: a.Props): a.ActorRef
+  def actorOf(props: untyped.Props): untyped.ActorRef
 
   /**
    * Create an untyped child Actor from the given [[akka.actor.Props]] and with the given name.
    */
-  def actorOf(props: a.Props, name: String): a.ActorRef
+  def actorOf(props: untyped.Props, name: String): untyped.ActorRef
 
   /**
    * Force the child Actor under the given name to terminate after it finishes
@@ -131,19 +131,12 @@ trait ActorContext[T] {
   def setReceiveTimeout(d: Duration): Unit
 
   /**
-   * When handling a [[Failed]] signal the behavior should invoke this method to
-   * inform the execution mechanism of the supervisor decision. If this is not
-   * done then the implied decision is to escalate the failure.
-   */
-  def setFailureResponse(decision: Failed.Decision): Unit
-
-  /**
    * Schedule the sending of the given message to the given target Actor after
    * the given time period has elapsed. The scheduled action can be cancelled
    * by invoking [[akka.actor.Cancellable!.cancel* cancel]] on the returned
    * handle.
    */
-  def schedule[U](delay: FiniteDuration, target: ActorRef[U], msg: U): a.Cancellable
+  def schedule[U](delay: FiniteDuration, target: ActorRef[U], msg: U): untyped.Cancellable
 
   /**
    * This Actor’s execution context. It can be used to run asynchronous tasks
@@ -160,11 +153,13 @@ trait ActorContext[T] {
 }
 
 /**
- * An [[ActorContext]] for testing purposes that provides only stubs for the
- * effects an Actor can perform and replaces created child Actors by
- * [[Inbox$.sync* a synchronous Inbox]].
+ * An [[ActorContext]] for synchronous execution of a [[Behavior]] that
+ * provides only stubs for the effects an Actor can perform and replaces
+ * created child Actors by [[Inbox$.sync* a synchronous Inbox]].
+ *
+ * @see [[EffectfulActorContext]] for more advanced uses.
  */
-class DummyActorContext[T](
+class StubbedActorContext[T](
   val name: String,
   override val props: Props[T])(
     override implicit val system: ActorSystem[Nothing]) extends ActorContext[T] {
@@ -177,27 +172,27 @@ class DummyActorContext[T](
 
   override def children: Iterable[ActorRef[Nothing]] = _children.values map (_.ref)
   override def child(name: String): Option[ActorRef[Nothing]] = _children get name map (_.ref)
-  override def spawn[U](props: Props[U]): ActorRef[U] = {
+  override def spawnAnonymous[U](props: Props[U]): ActorRef[U] = {
     val i = Inbox.sync[U](childName.next())
     _children += i.ref.ref.path.name -> i
     i.ref
   }
   override def spawn[U](props: Props[U], name: String): ActorRef[U] =
     _children get name match {
-      case Some(_) ⇒ throw new a.InvalidActorNameException(s"actor name $name is already taken")
+      case Some(_) ⇒ throw new untyped.InvalidActorNameException(s"actor name $name is already taken")
       case None ⇒
         val i = Inbox.sync[U](name)
         _children += name -> i
         i.ref
     }
-  override def actorOf(props: a.Props): a.ActorRef = {
+  override def actorOf(props: untyped.Props): untyped.ActorRef = {
     val i = Inbox.sync[Any](childName.next())
     _children += i.ref.ref.path.name -> i
     i.ref.ref
   }
-  override def actorOf(props: a.Props, name: String): a.ActorRef =
+  override def actorOf(props: untyped.Props, name: String): untyped.ActorRef =
     _children get name match {
-      case Some(_) ⇒ throw new a.InvalidActorNameException(s"actor name $name is already taken")
+      case Some(_) ⇒ throw new untyped.InvalidActorNameException(s"actor name $name is already taken")
       case None ⇒
         val i = Inbox.sync[Any](name)
         _children += name -> i
@@ -210,15 +205,11 @@ class DummyActorContext[T](
   def unwatch(other: akka.actor.ActorRef): other.type = other
   def setReceiveTimeout(d: Duration): Unit = ()
 
-  private var _lastFailureResponse: Failed.Decision = Failed.NoFailureResponse
-  def setFailureResponse(decision: Failed.Decision): Unit = _lastFailureResponse = decision
-  def getFailureResponse: Failed.Decision = _lastFailureResponse
-
-  def schedule[U](delay: FiniteDuration, target: ActorRef[U], msg: U): a.Cancellable = new a.Cancellable {
+  def schedule[U](delay: FiniteDuration, target: ActorRef[U], msg: U): untyped.Cancellable = new untyped.Cancellable {
     def cancel() = false
     def isCancelled = true
   }
-  implicit def executionContext: ExecutionContextExecutor = system.untyped.dispatcher
+  implicit def executionContext: ExecutionContextExecutor = system.executionContext
   def createWrapper[U](f: U ⇒ T): ActorRef[U] = ???
 
   def getInbox[U](name: String): Inbox.SyncInbox[U] = _children(name).asInstanceOf[Inbox.SyncInbox[U]]

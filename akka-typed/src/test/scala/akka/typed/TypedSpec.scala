@@ -29,7 +29,6 @@ class TypedSpec(config: Config) extends Spec with Matchers with BeforeAndAfterAl
   def this() = this(ConfigFactory.empty)
 
   implicit val system = ActorSystem(AkkaSpec.getCallerName(classOf[TypedSpec]), Props(guardian()), Some(config withFallback AkkaSpec.testConf))
-  implicit def untypedSystem = system.untyped
 
   implicit def timeout = Timeout(1.minute)
 
@@ -70,7 +69,7 @@ class TypedSpec(config: Config) extends Spec with Matchers with BeforeAndAfterAl
     pattern: String = null,
     occurrences: Int = Int.MaxValue): EventFilter = {
     val filter = EventFilter(message, source, start, pattern, occurrences)
-    system.untyped.eventStream.publish(Mute(filter))
+    system.eventStream.publish(Mute(filter))
     filter
   }
 
@@ -101,14 +100,14 @@ object TypedSpec {
 
   def guardian(outstanding: Map[ActorRef[_], ActorRef[Status]] = Map.empty): Behavior[Command] =
     FullTotal {
-      case Sig(ctx, t.Failed(ex, test)) ⇒
+      case Sig(ctx, f @ t.Failed(ex, test)) ⇒
         outstanding get test match {
           case Some(reply) ⇒
             reply ! Failed(ex)
-            ctx.setFailureResponse(t.Failed.Stop)
+            f.decide(t.Failed.Stop)
             guardian(outstanding - test)
           case None ⇒
-            ctx.setFailureResponse(t.Failed.Stop)
+            f.decide(t.Failed.Stop)
             Same
         }
       case Sig(ctx, Terminated(test)) ⇒

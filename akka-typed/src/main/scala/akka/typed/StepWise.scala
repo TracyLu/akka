@@ -40,12 +40,12 @@ object StepWise {
   import ScalaDSL._
 
   sealed trait AST
-  private case class Thunk(f: () ⇒ Any) extends AST
-  private case class ThunkV(f: Any ⇒ Any) extends AST
-  private case class Message(timeout: FiniteDuration, f: (Any, Any) ⇒ Any, trace: Trace) extends AST
-  private case class MultiMessage(timeout: FiniteDuration, count: Int, f: (Seq[Any], Any) ⇒ Any, trace: Trace) extends AST
-  private case class Failure(timeout: FiniteDuration, f: (Failed, Any) ⇒ (Failed.Decision, Any), trace: Trace) extends AST
-  private case class Termination(timeout: FiniteDuration, f: (Terminated, Any) ⇒ Any, trace: Trace) extends AST
+  private final case class Thunk(f: () ⇒ Any) extends AST
+  private final case class ThunkV(f: Any ⇒ Any) extends AST
+  private final case class Message(timeout: FiniteDuration, f: (Any, Any) ⇒ Any, trace: Trace) extends AST
+  private final case class MultiMessage(timeout: FiniteDuration, count: Int, f: (Seq[Any], Any) ⇒ Any, trace: Trace) extends AST
+  private final case class Failure(timeout: FiniteDuration, f: (Failed, Any) ⇒ (Failed.Decision, Any), trace: Trace) extends AST
+  private final case class Termination(timeout: FiniteDuration, f: (Terminated, Any) ⇒ Any, trace: Trace) extends AST
 
   private sealed trait Trace {
     def getStackTrace: Array[StackTraceElement]
@@ -63,7 +63,7 @@ object StepWise {
     def getStackTrace = getFrames
   }
 
-  case class Steps[T, U](ops: List[AST], keepTraces: Boolean) {
+  final case class Steps[T, U](ops: List[AST], keepTraces: Boolean) {
     private def getTrace(): Trace =
       if (keepTraces) new WithTrace
       else WithoutTrace
@@ -159,7 +159,7 @@ object StepWise {
           case Sig(_, ReceiveTimeout) ⇒ throwTimeout(trace, s"timeout of $t expired while waiting for a failure")
           case Sig(_, failure: Failed) ⇒
             val (response, v) = f(failure, value)
-            ctx.setFailureResponse(response)
+            failure.decide(response)
             run(ctx, tail, v)
           case other ⇒ throwIllegalState(trace, s"unexpected $other while waiting for a message")
         }

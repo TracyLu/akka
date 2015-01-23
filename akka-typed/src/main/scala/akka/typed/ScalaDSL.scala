@@ -5,12 +5,59 @@ package akka.typed
 
 import scala.annotation.tailrec
 import Behavior._
+import akka.util.LineNumbers
 
 /**
  * This object holds several behavior factories and combinators that can be
  * used to construct Behavior instances.
  */
 object ScalaDSL {
+
+  // FIXME check that all behaviors can cope with not getting PreStart as first message
+
+  implicit class BehaviorDecorators[T](val behavior: Behavior[T]) extends AnyVal {
+    /**
+     * Widen the type of this Behavior by providing a filter function that permits
+     * only a subtype of the widened set of messages.
+     */
+    def widen[U >: T](matcher: PartialFunction[U, T]): Behavior[U] = Widened(behavior, matcher)
+    /**
+     * Combine the two behaviors such that incoming messages are distributed
+     * to both of them, each one evolving its state independently.
+     */
+    def &&(other: Behavior[T]): Behavior[T] = And(behavior, other)
+    /**
+     * Combine the two behaviors such that incoming messages are given first to
+     * the left behavior and are then only passed on to the right behavior if
+     * the left one returned Unhandled.
+     */
+    def ||(other: Behavior[T]): Behavior[T] = Or(behavior, other)
+  }
+
+  /**
+   * Widen the wrapped Behavior by placing a funnel in front of it: the supplied
+   * PartialFunction decides which message to pull in (those that it is defined
+   * at) and may transform the incoming message to place them into the wrapped
+   * Behavior’s type hierarchy. Signals are not transformed.
+   */
+  final case class Widened[T, U >: T](behavior: Behavior[T], matcher: PartialFunction[U, T]) extends Behavior[U] {
+    private def postProcess(ctx: ActorContext[U], behv: Behavior[T]): Behavior[U] =
+      if (isUnhandled(behv)) Unhandled
+      else if (isAlive(behv)) {
+        val next = canonicalize(ctx.asInstanceOf[ActorContext[T]], behv, behavior)
+        if (next eq behavior) Same else Widened(next, matcher)
+      } else Stopped
+
+    override def management(ctx: ActorContext[U], msg: Signal): Behavior[U] =
+      postProcess(ctx, behavior.management(ctx.asInstanceOf[ActorContext[T]], msg))
+
+    override def message(ctx: ActorContext[U], msg: U): Behavior[U] =
+      if (matcher.isDefinedAt(msg))
+        postProcess(ctx, behavior.message(ctx.asInstanceOf[ActorContext[T]], matcher(msg)))
+      else Unhandled
+
+    override def toString: String = s"${behavior.toString}.widen(${LineNumbers(matcher)})"
+  }
 
   /**
    * Return this behavior from message processing in order to advise the
@@ -39,9 +86,7 @@ object ScalaDSL {
    * shall terminate voluntarily. If this actor has created child actors then
    * these will be stopped as part of the shutdown procedure. The PostStop
    * signal that results from stopping this actor will NOT be passed to the
-   * current behavior, it will be effectively ignored. In order to install a
-   * cleanup action please refer to
-   * [[akka.typed.Behavior$.Stopped[T](cleanup* Stopped(cleanup: () => Unit)]].
+   * current behavior, it will be effectively ignored.
    */
   def Stopped[T]: Behavior[T] = stoppedBehavior.asInstanceOf[Behavior[T]]
 
@@ -65,11 +110,13 @@ object ScalaDSL {
   /**
    * A message bundled together with the current [[ActorContext]].
    */
-  case class Msg[T](ctx: ActorContext[T], msg: T) extends MessageOrSignal[T]
+  @SerialVersionUID(1L)
+  final case class Msg[T](ctx: ActorContext[T], msg: T) extends MessageOrSignal[T]
   /**
    * A signal bundled together with the current [[ActorContext]].
    */
-  case class Sig[T](ctx: ActorContext[T], signal: Signal) extends MessageOrSignal[T]
+  @SerialVersionUID(1L)
+  final case class Sig[T](ctx: ActorContext[T], signal: Signal) extends MessageOrSignal[T]
 
   /**
    * This type of behavior allows to handle all incoming messages within
@@ -84,7 +131,7 @@ object ScalaDSL {
    * signal in addition, whereas an unhandled [[PostRestart]] signal will emit
    * an additional [[PreStart]] signal.
    */
-  case class Full[T](behavior: PartialFunction[MessageOrSignal[T], Behavior[T]]) extends Behavior[T] {
+  final case class Full[T](behavior: PartialFunction[MessageOrSignal[T], Behavior[T]]) extends Behavior[T] {
     override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = {
       lazy val fallback: (MessageOrSignal[T]) ⇒ Behavior[T] = {
         case Sig(context, PreRestart(_)) ⇒
@@ -101,7 +148,7 @@ object ScalaDSL {
     override def message(ctx: ActorContext[T], msg: T): Behavior[T] = {
       behavior.applyOrElse(Msg(ctx, msg), unhandledFunction)
     }
-    override def toString = s"Full(${LN.forClass(behavior.getClass)})"
+    override def toString = s"Full(${LineNumbers(behavior)})"
   }
 
   /**
@@ -111,10 +158,10 @@ object ScalaDSL {
    * to create the supplied function then any message not matching the list of
    * cases will fail this actor with a [[scala.MatchError]].
    */
-  case class FullTotal[T](behavior: MessageOrSignal[T] ⇒ Behavior[T]) extends Behavior[T] {
+  final case class FullTotal[T](behavior: MessageOrSignal[T] ⇒ Behavior[T]) extends Behavior[T] {
     override def management(ctx: ActorContext[T], msg: Signal) = behavior(Sig(ctx, msg))
     override def message(ctx: ActorContext[T], msg: T) = behavior(Msg(ctx, msg))
-    override def toString = s"FullTotal(${LN.forClass(behavior.getClass)})"
+    override def toString = s"FullTotal(${LineNumbers(behavior)})"
   }
 
   /**
@@ -127,30 +174,30 @@ object ScalaDSL {
    * This behavior type is most useful for leaf actors that do not create child
    * actors themselves.
    */
-  case class Total[T](behavior: T ⇒ Behavior[T]) extends Behavior[T] {
+  final case class Total[T](behavior: T ⇒ Behavior[T]) extends Behavior[T] {
     override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = msg match {
       case _ ⇒ Unhandled
     }
     override def message(ctx: ActorContext[T], msg: T): Behavior[T] = behavior(msg)
-    override def toString = s"Simple(${LN.forClass(behavior.getClass)})"
+    override def toString = s"Total(${LineNumbers(behavior)})"
   }
 
   /**
    * This type of Behavior is created from a partial function from the declared
    * message type to the next behavior, flagging all unmatched messages as
-   * [[Behavior$.Unhandled]]. All system signals are
+   * [[ScalaDSL$.Unhandled]]. All system signals are
    * ignored by this behavior, which implies that a failure of a child actor
    * will be escalated unconditionally.
    *
    * This behavior type is most useful for leaf actors that do not create child
    * actors themselves.
    */
-  case class Partial[T](behavior: PartialFunction[T, Behavior[T]]) extends Behavior[T] {
+  final case class Partial[T](behavior: PartialFunction[T, Behavior[T]]) extends Behavior[T] {
     override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = msg match {
       case _ ⇒ Unhandled
     }
     override def message(ctx: ActorContext[T], msg: T): Behavior[T] = behavior.applyOrElse(msg, unhandledFunction)
-    override def toString = s"Partial(${LN.forClass(behavior.getClass)})"
+    override def toString = s"Partial(${LineNumbers(behavior)})"
   }
 
   /**
@@ -158,7 +205,7 @@ object ScalaDSL {
    * some action upon each received message or signal. It is most commonly used
    * for logging or tracing what a certain Actor does.
    */
-  case class Tap[T](f: PartialFunction[MessageOrSignal[T], Unit], behavior: Behavior[T]) extends Behavior[T] {
+  final case class Tap[T](f: PartialFunction[MessageOrSignal[T], Unit], behavior: Behavior[T]) extends Behavior[T] {
     private def canonical(behv: Behavior[T]): Behavior[T] =
       if (isUnhandled(behv)) Unhandled
       else if (behv eq sameBehavior) Same
@@ -172,14 +219,14 @@ object ScalaDSL {
       f.applyOrElse(Msg(ctx, msg), unitFunction)
       canonical(behavior.message(ctx, msg))
     }
-    override def toString = s"Tap(${LN.forClass(f.getClass)},$behavior)"
+    override def toString = s"Tap(${LineNumbers(f)},$behavior)"
   }
   object Tap {
     def monitor[T](monitor: ActorRef[T], behavior: Behavior[T]): Tap[T] = Tap({ case Msg(_, msg) ⇒ monitor ! msg }, behavior)
   }
 
   /**
-   * This type of behavior is a variant of [[Behavior.Simple]] that does not
+   * This type of behavior is a variant of [[ScalaDSL$.Total]] that does not
    * allow the actor to change behavior. It is an efficient choice for stateless
    * actors, possibly entering such a behavior after finishing its
    * initialization (which may be modeled using any of the other behavior types).
@@ -187,15 +234,13 @@ object ScalaDSL {
    * This behavior type is most useful for leaf actors that do not create child
    * actors themselves.
    */
-  case class Static[T](behavior: T ⇒ Unit) extends Behavior[T] {
-    override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = msg match {
-      case _ ⇒ Unhandled
-    }
+  final case class Static[T](behavior: T ⇒ Unit) extends Behavior[T] {
+    override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = Unhandled
     override def message(ctx: ActorContext[T], msg: T): Behavior[T] = {
       behavior(msg)
       this
     }
-    override def toString = s"Static(${LN.forClass(behavior.getClass)})"
+    override def toString = s"Static(${LineNumbers(behavior)})"
   }
 
   /**
@@ -207,13 +252,14 @@ object ScalaDSL {
    * This decorator is useful for passing messages between the left and right
    * sides of [[ScalaDSL$.And]] and [[ScalaDSL$.Or]] combinators.
    */
-  case class SynchronousSelf[T](f: ActorRef[T] ⇒ Behavior[T]) extends Behavior[T] {
+  final case class SynchronousSelf[T](f: ActorRef[T] ⇒ Behavior[T]) extends Behavior[T] {
     private val inbox = Inbox.sync[T]("syncbox")
     private var _behavior = f(inbox.ref)
     private def behavior = _behavior
     private def setBehavior(ctx: ActorContext[T], b: Behavior[T]): Unit =
       _behavior = canonicalize(ctx, b, _behavior)
 
+    // FIXME should we protect against infinite loops?
     @tailrec private def run(ctx: ActorContext[T], next: Behavior[T]): Behavior[T] = {
       setBehavior(ctx, next)
       if (inbox.hasMessages) run(ctx, behavior.message(ctx, inbox.receiveMsg()))
@@ -237,7 +283,7 @@ object ScalaDSL {
    * exclusively. When both sub-behaviors respond to a [[Failed]] signal, the
    * response with the higher precedence is chosen (see [[Failed$]]).
    */
-  case class And[T](left: Behavior[T], right: Behavior[T]) extends Behavior[T] {
+  final case class And[T](left: Behavior[T], right: Behavior[T]) extends Behavior[T] {
 
     override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] = {
       val l = left.management(ctx, msg)
@@ -278,12 +324,12 @@ object ScalaDSL {
    * A behavior combinator that feeds incoming messages and signals either into
    * the left or right sub-behavior and allows them to evolve independently of
    * each other. The message or signal is passed first into the left sub-behavior
-   * and only if that results in [[Behavior$.Unhandled]] is it passed to the right
+   * and only if that results in [[ScalaDSL$.Unhandled]] is it passed to the right
    * sub-behavior. When one of the sub-behaviors terminates the other takes over
    * exclusively. When both sub-behaviors respond to a [[Failed]] signal, the
    * response with the higher precedence is chosen (see [[Failed$]]).
    */
-  case class Or[T](left: Behavior[T], right: Behavior[T]) extends Behavior[T] {
+  final case class Or[T](left: Behavior[T], right: Behavior[T]) extends Behavior[T] {
 
     override def management(ctx: ActorContext[T], msg: Signal): Behavior[T] =
       left.management(ctx, msg) match {
@@ -315,7 +361,7 @@ object ScalaDSL {
   }
 
   // TODO
-  // case class Selective[T](timeout: FiniteDuration, selector: PartialFunction[T, Behavior[T]], onTimeout: () ⇒ Behavior[T])
+  // final case class Selective[T](timeout: FiniteDuration, selector: PartialFunction[T, Behavior[T]], onTimeout: () ⇒ Behavior[T])
 
   /**
    * A behavior decorator that extracts the self [[ActorRef]] while receiving the
@@ -334,7 +380,7 @@ object ScalaDSL {
    * This can also be used together with implicitly sender-capturing message
    * types:
    * {{{
-   * case class OtherMsg(msg: String)(implicit val replyTo: ActorRef[Reply])
+   * final case class OtherMsg(msg: String)(implicit val replyTo: ActorRef[Reply])
    *
    * SelfAware[MyCommand] { implicit self =>
    *   Simple {

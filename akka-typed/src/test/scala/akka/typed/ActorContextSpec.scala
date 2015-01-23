@@ -12,60 +12,63 @@ object ActorContextSpec {
   sealed trait Command
   sealed trait Event
 
-  case class GotSignal(signal: Signal) extends Event with DeadLetterSuppression
+  final case class GotSignal(signal: Signal) extends Event with DeadLetterSuppression
 
-  case class Ping(replyTo: ActorRef[Pong]) extends Command
+  final case class Ping(replyTo: ActorRef[Pong]) extends Command
   sealed trait Pong extends Event
   case object Pong1 extends Pong
   case object Pong2 extends Pong
 
-  case class Miss(replyTo: ActorRef[Missed.type]) extends Command
+  final case class Miss(replyTo: ActorRef[Missed.type]) extends Command
   case object Missed extends Event
 
-  case class Renew(replyTo: ActorRef[Renewed.type]) extends Command
+  final case class Renew(replyTo: ActorRef[Renewed.type]) extends Command
   case object Renewed extends Event
 
-  case class Throw(ex: Exception) extends Command
+  final case class Throw(ex: Exception) extends Command
 
-  case class MkChild(name: Option[String], monitor: ActorRef[GotSignal], replyTo: ActorRef[Created]) extends Command
-  case class Created(ref: ActorRef[Command]) extends Event
+  final case class MkChild(name: Option[String], monitor: ActorRef[GotSignal], replyTo: ActorRef[Created]) extends Command
+  final case class Created(ref: ActorRef[Command]) extends Event
 
-  case class SetTimeout(duration: FiniteDuration, replyTo: ActorRef[TimeoutSet.type]) extends Command
+  final case class SetTimeout(duration: FiniteDuration, replyTo: ActorRef[TimeoutSet.type]) extends Command
   case object TimeoutSet extends Event
 
-  case class Schedule[T](delay: FiniteDuration, target: ActorRef[T], msg: T, replyTo: ActorRef[Scheduled.type]) extends Command
+  final case class Schedule[T](delay: FiniteDuration, target: ActorRef[T], msg: T, replyTo: ActorRef[Scheduled.type]) extends Command
   case object Scheduled extends Event
 
   case object Stop extends Command
 
-  case class Kill(name: String, replyTo: ActorRef[Killed.type]) extends Command
+  final case class Kill(name: String, replyTo: ActorRef[Killed.type]) extends Command
   case object Killed extends Event
 
-  case class Watch(ref: ActorRef[Nothing], replyTo: ActorRef[Watched.type]) extends Command
+  final case class Watch(ref: ActorRef[Nothing], replyTo: ActorRef[Watched.type]) extends Command
   case object Watched extends Event
 
-  case class Unwatch(ref: ActorRef[Nothing], replyTo: ActorRef[Unwatched.type]) extends Command
+  final case class Unwatch(ref: ActorRef[Nothing], replyTo: ActorRef[Unwatched.type]) extends Command
   case object Unwatched extends Event
 
-  case class GetInfo(replyTo: ActorRef[Info]) extends Command
-  case class Info(self: ActorRef[Command], props: Props[Command], system: ActorSystem[Nothing]) extends Event
+  final case class GetInfo(replyTo: ActorRef[Info]) extends Command
+  final case class Info(self: ActorRef[Command], props: Props[Command], system: ActorSystem[Nothing]) extends Event
 
-  case class GetChild(name: String, replyTo: ActorRef[Child]) extends Command
-  case class Child(c: Option[ActorRef[Nothing]]) extends Event
+  final case class GetChild(name: String, replyTo: ActorRef[Child]) extends Command
+  final case class Child(c: Option[ActorRef[Nothing]]) extends Event
 
-  case class GetChildren(replyTo: ActorRef[Children]) extends Command
-  case class Children(c: Set[ActorRef[Nothing]]) extends Event
+  final case class GetChildren(replyTo: ActorRef[Children]) extends Command
+  final case class Children(c: Set[ActorRef[Nothing]]) extends Event
 
-  case class ChildEvent(event: Event) extends Event
+  final case class ChildEvent(event: Event) extends Event
 
-  case class BecomeInert(replyTo: ActorRef[BecameInert.type]) extends Command
+  final case class BecomeInert(replyTo: ActorRef[BecameInert.type]) extends Command
   case object BecameInert extends Event
 
   def subject(monitor: ActorRef[GotSignal]): Behavior[Command] =
     FullTotal {
       case Sig(ctx, signal) ⇒
         monitor ! GotSignal(signal)
-        if (signal.isInstanceOf[Failed]) ctx.setFailureResponse(Failed.Restart)
+        signal match {
+          case f: Failed ⇒ f.decide(Failed.Restart)
+          case _         ⇒
+        }
         Same
       case Msg(ctx, message) ⇒ message match {
         case Ping(replyTo) ⇒
@@ -81,7 +84,7 @@ object ActorContextSpec {
           throw ex
         case MkChild(name, mon, replyTo) ⇒
           val child = name match {
-            case None    ⇒ ctx.spawn(Props(subject(mon)))
+            case None    ⇒ ctx.spawnAnonymous(Props(subject(mon)))
             case Some(n) ⇒ ctx.spawn(Props(subject(mon)), n)
           }
           replyTo ! Created(child)
@@ -281,8 +284,9 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
           ctx.watch(subj)
       }.expectTermination(500.millis) {
         case (t, (subj, child)) ⇒
-          t.ref should ===(child)
-          subj
+          if (t.ref === child) subj
+          else if (t.ref === subj) child
+          else fail(s"expected termination of either $subj or $child but got $t")
       }.expectTermination(500.millis) { (t, subj) ⇒
         t.ref should ===(subj)
       }
@@ -454,6 +458,11 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
   object `An ActorContext` extends Tests {
     override def suite = "basic"
     override def behavior(ctx: ActorContext[Event]): Behavior[Command] = subject(ctx.self)
+  }
+
+  object `An ActorContext with widened Behavior` extends Tests {
+    override def suite = "widened"
+    override def behavior(ctx: ActorContext[Event]): Behavior[Command] = subject(ctx.self).widen { case x ⇒ x }
   }
 
   object `An ActorContext with SynchronousSelf` extends Tests {
