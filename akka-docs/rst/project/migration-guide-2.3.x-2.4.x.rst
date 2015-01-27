@@ -160,6 +160,7 @@ In case you want to perserve the old behavior of providing the actor's path as t
 implement it yourself either as a helper trait or simply by overriding ``persistenceId`` as follows::
 
     override def persistenceId = self.path.toStringWithoutAddress
+
 Secure Cookies
 ==============
 

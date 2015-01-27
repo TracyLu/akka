@@ -161,10 +161,10 @@ object LineNumbers {
       val writeReplace = c.getDeclaredMethod("writeReplace")
       writeReplace.setAccessible(true)
       writeReplace.invoke(l) match {
-//        case serialized: SerializedLambda ⇒
-//          dbg(s"    found Lambda implemented in ${serialized.getImplClass}:${serialized.getImplMethodName}")
-//          Option(c.getClassLoader.getResourceAsStream(serialized.getImplClass + ".class"))
-//            .map(_ -> Some(serialized.getImplMethodName))
+        //        case serialized: SerializedLambda ⇒
+        //          dbg(s"    found Lambda implemented in ${serialized.getImplClass}:${serialized.getImplMethodName}")
+        //          Option(c.getClassLoader.getResourceAsStream(serialized.getImplClass + ".class"))
+        //            .map(_ -> Some(serialized.getImplMethodName))
         case _ ⇒ None
       }
     } catch {

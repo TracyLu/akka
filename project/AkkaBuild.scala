@@ -175,7 +175,8 @@ object AkkaBuild extends Build {
     base = file("akka-docs"),
     dependencies = Seq(actor, testkit % "test->test",
       remote % "compile;test->test", cluster, slf4j, agent, camel, osgi,
-      persistence % "compile;test->test", persistenceTck)
+      persistence % "compile;test->test", persistenceTck,
+      typed % "compile;test->test")
   )
 
   lazy val contrib = Project(
