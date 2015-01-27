@@ -81,7 +81,7 @@ object IntroSpec {
         Static {
           case GetSession(screenName, client) ⇒
             sessions ::= client
-            val wrapper = ctx.createWrapper {
+            val wrapper = ctx.spawnAdapter {
               p: PostMessage ⇒ PostSessionMessage(screenName, p.message)
             }
             client ! SessionGranted(wrapper)

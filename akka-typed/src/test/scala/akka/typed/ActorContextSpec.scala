@@ -262,7 +262,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
     def `03 must restart and stop a child actor`(): Unit = sync(setup("ctx03") { (ctx, startWith) ⇒
       val self = ctx.self
       val ex = new Exception("KABOOM2")
-      startWith.mkChild(None, ctx.createWrapper(ChildEvent), self) {
+      startWith.mkChild(None, ctx.spawnAdapter(ChildEvent), self) {
         case (subj, child) ⇒
           val log = muteExpectedException[Exception]("KABOOM2", occurrences = 1)
           child ! Throw(ex)
@@ -294,7 +294,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
 
     def `04 must stop a child actor`(): Unit = sync(setup("ctx04") { (ctx, startWith) ⇒
       val self = ctx.self
-      startWith.mkChild(Some("A"), ctx.createWrapper(ChildEvent), self, inert = true) {
+      startWith.mkChild(Some("A"), ctx.spawnAdapter(ChildEvent), self, inert = true) {
         case (subj, child) ⇒
           subj ! Kill("A", self)
           child
@@ -362,7 +362,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
 
     def `10 must watch a child actor before its termination`(): Unit = sync(setup("ctx10") { (ctx, startWith) ⇒
       val self = ctx.self
-      startWith.mkChild(None, ctx.createWrapper(ChildEvent), self) {
+      startWith.mkChild(None, ctx.spawnAdapter(ChildEvent), self) {
         case (subj, child) ⇒
           subj ! Watch(child, self)
           child
@@ -376,7 +376,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
 
     def `11 must watch a child actor after its termination`(): Unit = sync(setup("ctx11") { (ctx, startWith) ⇒
       val self = ctx.self
-      startWith.mkChild(None, ctx.createWrapper(ChildEvent), self).keep {
+      startWith.mkChild(None, ctx.spawnAdapter(ChildEvent), self).keep {
         case (subj, child) ⇒
           ctx.watch(child)
           child ! Stop
@@ -392,7 +392,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
 
     def `12 must unwatch a child actor before its termination`(): Unit = sync(setup("ctx12") { (ctx, startWith) ⇒
       val self = ctx.self
-      startWith.mkChild(None, ctx.createWrapper(ChildEvent), self).keep {
+      startWith.mkChild(None, ctx.spawnAdapter(ChildEvent), self).keep {
         case (subj, child) ⇒
           subj ! Watch(child, self)
       }.expectMessageKeep(500.millis) {
@@ -424,7 +424,7 @@ class ActorContextSpec extends TypedSpec(ConfigFactory.parseString(
     def `21 must return right info about children`(): Unit = sync(setup("ctx21") { (ctx, startWith) ⇒
       val self = ctx.self
       startWith
-        .mkChild(Some("B"), ctx.createWrapper(ChildEvent), self)
+        .mkChild(Some("B"), ctx.spawnAdapter(ChildEvent), self)
         .stimulate(_._1 ! GetChild("A", self), _ ⇒ Child(None))
         .stimulate(_._1 ! GetChild("B", self), x ⇒ Child(Some(x._2)))
         .stimulate(_._1 ! GetChildren(self), x ⇒ Children(Set(x._2)))

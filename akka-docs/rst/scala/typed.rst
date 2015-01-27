@@ -181,7 +181,7 @@ in we add that client to the list and then we need to create the session’s
 create a very simple Actor that just repackages the :class:`PostMessage`
 command into a :class:`PostSessionMessage` command which also includes the
 screen name. Such a wrapper Actor can be created by using the
-:meth:`createWrapper` method on the :class:`ActorContext`, so that we can then
+:meth:`spawnAdapter` method on the :class:`ActorContext`, so that we can then
 go on to reply to the client with the :class:`SessionGranted` result.
 
 The behavior that we declare here can handle both subtypes of :class:`Command`.

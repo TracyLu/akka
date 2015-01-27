@@ -81,7 +81,7 @@ private[typed] class ActorContextAdapter[T](ctx: akka.actor.ActorContext) extend
     import ctx.dispatcher
     ctx.system.scheduler.scheduleOnce(delay, target.ref, msg)
   }
-  def createWrapper[U](f: U ⇒ T) = ActorRef[U](ctx.actorOf(akka.actor.Props(classOf[MessageWrapper], f)))
+  def spawnAdapter[U](f: U ⇒ T) = ActorRef[U](ctx.actorOf(akka.actor.Props(classOf[MessageWrapper], f)))
 }
 
 /**

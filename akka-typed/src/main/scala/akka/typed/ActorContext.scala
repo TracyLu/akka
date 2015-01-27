@@ -149,7 +149,7 @@ trait ActorContext[T] {
    * protocols can be ingested by this Actor. You are strongly advised to cache
    * these ActorRefs or to stop them when no longer needed.
    */
-  def createWrapper[U](f: U ⇒ T): ActorRef[U]
+  def spawnAdapter[U](f: U ⇒ T): ActorRef[U]
 }
 
 /**
@@ -210,7 +210,7 @@ class StubbedActorContext[T](
     def isCancelled = true
   }
   implicit def executionContext: ExecutionContextExecutor = system.executionContext
-  def createWrapper[U](f: U ⇒ T): ActorRef[U] = ???
+  def spawnAdapter[U](f: U ⇒ T): ActorRef[U] = ???
 
   def getInbox[U](name: String): Inbox.SyncInbox[U] = _children(name).asInstanceOf[Inbox.SyncInbox[U]]
   def removeInbox(name: String): Unit = _children -= name
